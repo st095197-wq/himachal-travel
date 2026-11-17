@@ -1,14 +1,8 @@
-# Himachal Travel with Gourav Shrama
-Mountain Blue English-language starter website. All assets included, no dependencies besides Python 3 for the local server.
+# Himachal Travel — admin upgrade
+Upload ALL nine website files plus this README into the existing GitHub folder `himachal-travel-updated`, replacing same-name files. Preserve the existing Google verification meta tag (included in index.html).
 
-## Run on Windows
-1. Extract the ZIP. Install Python 3 if needed.
-2. Open the extracted folder in File Explorer. Type `cmd` in the address bar and press Enter.
-3. Run `python server.py` (or `py server.py`).
-4. Open http://localhost:8000 in a browser. Keep the terminal open.
-5. WhatsApp booking is configured for +91 8091246213. Test the button before public launch.
+Render settings: Root Directory `himachal-travel-updated`, Build Command `python -m compileall .`, Start Command `python server.py`. Under Environment add `ADMIN_PASSWORD` with your own unique strong password (at least 16 characters); never commit it to GitHub. Save and deploy. Admin: https://himachal-travel.onrender.com/admin after deploy. Login accepts the environment password; sessions last eight hours or until restart. Sign out on shared computers.
 
-The online booking form stores pending enquiries in private_bookings.sqlite3. It does not confirm availability or charge money. The database is blocked from public GET and HEAD requests. Use a local SQLite viewer to inspect enquiries. No admin interface or email notifications are included. Prices and itineraries are examples, not verified offers. The mountain illustrations are decorative, not actual destination photographs.
+Persistence: SQLite and uploads reside in `private_bookings.sqlite3` in DATA_DIR (defaults to project directory). Render free instances have ephemeral storage: edits, photos and bookings can disappear on restart/redeploy. For real use attach a persistent disk to a supported paid service, mount at `/var/data`, and set `DATA_DIR=/var/data`. Existing live data is NOT migrated automatically; export/back up the original database before redeploy if it contains bookings. A copy of the previous database with matching schema can be placed in the new data directory before startup. Never publish the database to GitHub. Back up regularly. No online payments, automated emails, or WhatsApp booking import are implemented. Prices are USD and sample rates. Photo uploads max 5 MB (JPEG/PNG/WebP). Hide packages rather than deleting so booking IDs stay stable.
 
-## Before public launch
-Use verified package prices and real destination photos you have rights to use. Confirm hotel/transport arrangements, safety and seasonal constraints, business registration, taxes, insurance and any applicable permits. Add actual contact details, privacy notice, terms, cancellation/refund policy and operator identity. Use a production server with HTTPS, secure admin access, spam/rate limits, backups and appropriate data retention. Configure an approved payment gateway using server-side order creation, verified webhook signatures, and payment reconciliation; never collect card details directly. International payment capability depends on the provider and business approval. Do not deploy this local development server directly to the public internet. Static hosting alone will not run the booking API.
+Local test: set ADMIN_PASSWORD in your shell, run `python server.py`, visit http://localhost:8000/admin. Python standard library only. Production hardening (rate limiting, monitoring, backups, privacy notice, payment integration) recommended before handling real customers.
