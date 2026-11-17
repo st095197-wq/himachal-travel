@@ -197,7 +197,7 @@ class Handler(SimpleHTTPRequestHandler):
             tour=int(d['tour']);people=int(d['people']);date=datetime.date.fromisoformat(d['date']);name=d['name'].strip();email=d['email'].strip();country=d['country'].strip();notes=d.get('notes','')
             assert 1<=people<=20 and date>=datetime.date.today() and 0<len(name)<=100 and 0<len(country)<=100 and len(email)<=254 and re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',email) and isinstance(notes,str) and len(notes)<=1000
             phone=str(d.get('phone','')).strip(); opt=d.get('wa_opt_in') is True
-            assert (not phone or re.fullmatch(r'\+[1-9][0-9]{7,14}',phone)) and (not opt or phone)
+            assert re.fullmatch(r'\+[1-9][0-9]{7,14}',phone)
             ref='HT-'+uuid.uuid4().hex[:12].upper()
             with db() as c:
                 ts=tours(c);assert 0<=tour<len(ts) and ts[tour].get('active',True)
