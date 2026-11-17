@@ -26,6 +26,7 @@ def db():
     c.execute('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)')
     c.execute('CREATE TABLE IF NOT EXISTS photos (id TEXT PRIMARY KEY, mime TEXT, data BLOB)')
     c.execute('CREATE TABLE IF NOT EXISTS booking_quotes (id TEXT PRIMARY KEY, name TEXT, price REAL)')
+    c.execute("CREATE TABLE IF NOT EXISTS quote_currencies (id TEXT PRIMARY KEY, currency TEXT NOT NULL)")
     c.execute("CREATE TABLE IF NOT EXISTS reviews (id TEXT PRIMARY KEY, name TEXT NOT NULL, rating INTEGER NOT NULL, body TEXT NOT NULL, created TEXT NOT NULL, status TEXT NOT NULL)")
     c.execute("CREATE TABLE IF NOT EXISTS booking_contacts (id TEXT PRIMARY KEY, phone TEXT, wa_opt_in INTEGER)")
     c.execute("CREATE TABLE IF NOT EXISTS payments (id TEXT PRIMARY KEY, provider_id TEXT, url TEXT, amount INTEGER, currency TEXT, status TEXT)")
@@ -35,7 +36,10 @@ def db():
 
 def tours(c):
     r=c.execute("SELECT value FROM settings WHERE key='tours'").fetchone()
-    return json.loads(r[0]) if r else json.loads((ROOT/'tours.json').read_text())
+    ts=json.loads(r[0]) if r else json.loads((ROOT/'tours.json').read_text())
+    for t in ts:
+        if 'price_inr' not in t: t['price_inr']=round(t['price']*85,2)
+    return ts
 
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self,*a,**kw): super().__init__(*a,directory=str(ROOT),**kw)
@@ -77,7 +81,7 @@ class Handler(SimpleHTTPRequestHandler):
             with db() as c:self.out(200,[dict(t,id=i) for i,t in enumerate(tours(c))]);return
         if p=='/api/admin':
             if not self.auth():self.out(401,{'error':'Login required'});return
-            with db() as c:self.out(200,{'tours':tours(c),'bookings':[dict(x) for x in c.execute('SELECT b.*,q.name AS tour_name,q.price AS quoted_price, k.phone,k.wa_opt_in,td.details AS trip_details FROM bookings b LEFT JOIN booking_quotes q ON b.id=q.id LEFT JOIN booking_contacts k ON b.id=k.id LEFT JOIN trip_details td ON td.id=b.id ORDER BY created DESC')]});return
+            with db() as c:self.out(200,{'tours':tours(c),'bookings':[dict(x) for x in c.execute('SELECT b.*,q.name AS tour_name,q.price AS quoted_price, COALESCE(qc.currency,"USD") AS quoted_currency, k.phone,k.wa_opt_in,td.details AS trip_details FROM bookings b LEFT JOIN booking_quotes q ON b.id=q.id LEFT JOIN quote_currencies qc ON b.id=qc.id LEFT JOIN booking_contacts k ON b.id=k.id LEFT JOIN trip_details td ON td.id=b.id ORDER BY created DESC')]});return
         if re.fullmatch(r'/photo/[a-f0-9]{32}',p):
             with db() as c:r=c.execute('SELECT mime,data FROM photos WHERE id=?',(p[7:],)).fetchone()
             if r:self.out(200,r['data'],r['mime']);return
@@ -155,7 +159,8 @@ class Handler(SimpleHTTPRequestHandler):
                         i=int(d['id']); assert -1<=i<len(ts)
                         t={k:str(d[k]).strip() for k in ('name','days','place','desc')}; assert all(0<len(v)<=2000 for v in t.values())
                         price=float(d['price']); assert 0<price<=1000000
-                        t.update(price=price,plan=[str(x)[:500] for x in d['plan'] if str(x).strip()][:60],active=bool(d['active']),photo=ts[i].get('photo','') if i>=0 else '')
+                        price_inr=float(d['price_inr']); assert 0<price_inr<=85000000
+                        t.update(price=price,price_inr=price_inr,plan=[str(x)[:500] for x in d['plan'] if str(x).strip()][:60],active=bool(d['active']),photo=ts[i].get('photo','') if i>=0 else '')
                         if i<0:ts.append(t)
                         else:ts[i]=t
                     elif p=='/api/admin/photo':
@@ -191,7 +196,7 @@ class Handler(SimpleHTTPRequestHandler):
             if p in ('/api/track','/api/receipt'):
                 ref=str(d.get('id','')).strip().upper();email=str(d.get('email','')).strip().lower()
                 with db() as c:
-                    b=c.execute('SELECT b.id,b.status,b.arrival,b.people,b.name,b.tour,q.name AS tour_name FROM bookings b LEFT JOIN booking_quotes q ON b.id=q.id WHERE b.id=? AND lower(b.email)=?',(ref,email)).fetchone()
+                    b=c.execute('SELECT b.id,b.status,b.arrival,b.people,b.name,b.tour,q.name AS tour_name,q.price AS quoted_price,COALESCE(qc.currency,"USD") AS quoted_currency FROM bookings b LEFT JOIN booking_quotes q ON b.id=q.id LEFT JOIN quote_currencies qc ON b.id=qc.id WHERE b.id=? AND lower(b.email)=?',(ref,email)).fetchone()
                     if not b:self.out(404,{'error':'Booking not found'});return
                     r=c.execute('SELECT url,amount,currency,status FROM payments WHERE id=?',(ref,)).fetchone()
                     result=dict(b); result['tour_name']=result['tour_name'] or (tours(c)[b['tour']]['name'] if 0<=b['tour']<len(tours(c)) else 'Tour'); result.pop('tour',None)
@@ -209,10 +214,11 @@ class Handler(SimpleHTTPRequestHandler):
             assert 1<=people<=20 and date>=datetime.date.today() and 0<len(name)<=100 and 0<len(country)<=100 and len(email)<=254 and re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',email) and isinstance(notes,str) and len(notes)<=1000
             phone=str(d.get('phone','')).strip(); opt=d.get('wa_opt_in') is True
             assert re.fullmatch(r'\+[1-9][0-9]{7,14}',phone)
+            currency=d.get('currency','USD'); assert currency in ('USD','INR')
             ref='HT-'+uuid.uuid4().hex[:12].upper()
             with db() as c:
                 ts=tours(c);assert 0<=tour<len(ts) and ts[tour].get('active',True)
-                c.execute('INSERT INTO bookings VALUES (?,?,?,?,?,?,?,?,?,?)',(ref,tour,date.isoformat(),people,name,email,country,notes,datetime.datetime.now(datetime.timezone.utc).isoformat(),'pending'));c.execute('INSERT INTO booking_quotes VALUES (?,?,?)',(ref,ts[tour]['name'],ts[tour]['price']));c.execute('INSERT INTO booking_contacts VALUES (?,?,?)',(ref,phone,int(opt)));c.commit()
+                c.execute('INSERT INTO bookings VALUES (?,?,?,?,?,?,?,?,?,?)',(ref,tour,date.isoformat(),people,name,email,country,notes,datetime.datetime.now(datetime.timezone.utc).isoformat(),'pending'));c.execute('INSERT INTO booking_quotes VALUES (?,?,?)',(ref,ts[tour]['name'],ts[tour]['price_inr'] if currency=='INR' else ts[tour]['price']));c.execute('INSERT INTO quote_currencies VALUES (?,?)',(ref,currency));c.execute('INSERT INTO booking_contacts VALUES (?,?,?)',(ref,phone,int(opt)));c.commit()
             self.out(201,{'id':ref,'status':'pending'})
         except (ValueError,KeyError,TypeError,AttributeError,AssertionError,OverflowError):self.out(400,{'error':'Invalid details or file'})
         except sqlite3.Error:self.out(500,{'error':'Database unavailable'})
