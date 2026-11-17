@@ -1,0 +1,60 @@
+[
+  {
+    "name": "Manali Snow Adventure",
+    "days": "5 days / 4 nights",
+    "price": 299,
+    "place": "Manali",
+    "desc": "Mountain views, village walks and snowy landscapes when conditions allow.",
+    "plan": [
+      "Arrival in Manali",
+      "Old Manali and Hadimba Temple",
+      "Solang Valley (weather permitting)",
+      "Local villages and leisure",
+      "Departure"
+    ]
+  },
+  {
+    "name": "Shimla Heritage Tour",
+    "days": "4 days / 3 nights",
+    "price": 249,
+    "place": "Shimla",
+    "desc": "Colonial heritage, cedar forests and scenic hill walks.",
+    "plan": [
+      "Arrival in Shimla",
+      "The Ridge and Mall Road",
+      "Kufri and forest viewpoints",
+      "Departure"
+    ]
+  },
+  {
+    "name": "Spiti Valley Expedition",
+    "days": "8 days / 7 nights",
+    "price": 599,
+    "place": "Spiti Valley",
+    "desc": "High-altitude landscapes, monasteries and remote Himalayan villages.",
+    "plan": [
+      "Arrival in Shimla",
+      "Travel to Kalpa",
+      "Travel to Nako or Tabo",
+      "Acclimatization and local monastery",
+      "Travel to Kaza",
+      "Local villages and Key Monastery, if safe",
+      "Return towards Kalpa or Rampur",
+      "Departure towards Shimla; route subject to conditions"
+    ]
+  },
+  {
+    "name": "Dharamshala Cultural Tour",
+    "days": "5 days / 4 nights",
+    "price": 349,
+    "place": "Dharamshala",
+    "desc": "Tibetan culture, monasteries and the foothills of the Dhauladhar.",
+    "plan": [
+      "Arrival in Dharamshala",
+      "McLeod Ganj and monasteries",
+      "Norbulingka area",
+      "Local walks and leisure",
+      "Departure"
+    ]
+  }
+]
