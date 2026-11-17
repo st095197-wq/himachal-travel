@@ -14,6 +14,7 @@ def db():
     c.execute('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)')
     c.execute('CREATE TABLE IF NOT EXISTS photos (id TEXT PRIMARY KEY, mime TEXT, data BLOB)')
     c.execute('CREATE TABLE IF NOT EXISTS booking_quotes (id TEXT PRIMARY KEY, name TEXT, price REAL)')
+    c.execute("CREATE TABLE IF NOT EXISTS reviews (id TEXT PRIMARY KEY, name TEXT NOT NULL, rating INTEGER NOT NULL, body TEXT NOT NULL, created TEXT NOT NULL, status TEXT NOT NULL)")
     return c
 
 def tours(c):
@@ -40,6 +41,11 @@ class Handler(SimpleHTTPRequestHandler):
         return f'htadmin={value}; Path=/; HttpOnly; SameSite=Strict; Max-Age={age}'+secure
     def do_GET(self):
         p=urlsplit(self.path).path
+        if p=='/api/reviews':
+            with db() as c:self.out(200,[dict(x) for x in c.execute("SELECT name,rating,body,created FROM reviews WHERE status='approved' ORDER BY created DESC")]);return
+        if p=='/api/admin/reviews':
+            if not self.auth():self.out(401,{'error':'Login required'});return
+            with db() as c:self.out(200,[dict(x) for x in c.execute('SELECT * FROM reviews ORDER BY created DESC')]);return
         if p=='/api/tours':
             with db() as c:self.out(200,[dict(t,id=i) for i,t in enumerate(tours(c))]);return
         if p=='/api/admin':
@@ -73,6 +79,12 @@ class Handler(SimpleHTTPRequestHandler):
                     value=f'{int(time.time()+28800)}.{secrets.token_hex(16)}'; value+='.'+hmac.new(KEY,value.encode(),hashlib.sha256).hexdigest();self.out(200,{'ok':True},cookie=self.cookie(value,28800));return
                 if not self.auth():self.out(401,{'error':'Login required'});return
                 if p=='/api/admin/logout':self.out(200,{'ok':True},cookie=self.cookie('',0));return
+                if p=='/api/admin/review':
+                    action=d['action']; assert action in ('approved','pending','delete')
+                    with db() as c:
+                        if action=='delete':c.execute('DELETE FROM reviews WHERE id=?',(d['id'],))
+                        else:c.execute('UPDATE reviews SET status=? WHERE id=?',(action,d['id']))
+                    self.out(200,{'ok':True});return
                 with db() as c:
                     ts=tours(c)
                     if p=='/api/admin/tour':
@@ -91,6 +103,17 @@ class Handler(SimpleHTTPRequestHandler):
                     else:self.send_error(404);return
                     c.execute("INSERT OR REPLACE INTO settings VALUES ('tours',?)",(json.dumps(ts),));c.commit()
                 self.out(200,{'ok':True});return
+            if p=='/api/reviews':
+                assert n<=8000
+                name=d['name'].strip();body=d['body'].strip();rating=d['rating']
+                assert type(rating) is int and 1<=rating<=5 and 1<=len(name)<=80 and 10<=len(body)<=1500 and d.get('consent') is True and not d.get('website')
+                now=datetime.datetime.now(datetime.timezone.utc)
+                with db() as c:
+                    c.execute('BEGIN IMMEDIATE')
+                    count=c.execute('SELECT COUNT(*) FROM reviews WHERE created>=?',((now-datetime.timedelta(hours=1)).isoformat(),)).fetchone()[0]
+                    if count>=30:self.out(429,{'error':'Too many submissions. Try again later.'});return
+                    c.execute('INSERT INTO reviews VALUES (?,?,?,?,?,?)',(uuid.uuid4().hex,name,rating,body,now.isoformat(),'pending'))
+                self.out(201,{'ok':True});return
             if p!='/api/bookings':self.send_error(404);return
             assert n<=16000
             tour=int(d['tour']);people=int(d['people']);date=datetime.date.fromisoformat(d['date']);name=d['name'].strip();email=d['email'].strip();country=d['country'].strip();notes=d.get('notes','')
