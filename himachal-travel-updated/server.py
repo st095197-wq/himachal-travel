@@ -21,6 +21,7 @@ def db():
     c.execute("CREATE TABLE IF NOT EXISTS booking_contacts (id TEXT PRIMARY KEY, phone TEXT, wa_opt_in INTEGER)")
     c.execute("CREATE TABLE IF NOT EXISTS payments (id TEXT PRIMARY KEY, provider_id TEXT, url TEXT, amount INTEGER, currency TEXT, status TEXT)")
     c.execute("CREATE TABLE IF NOT EXISTS daily_views (day TEXT PRIMARY KEY, hits INTEGER)")
+    c.execute("CREATE TABLE IF NOT EXISTS trip_details (id TEXT PRIMARY KEY, details TEXT NOT NULL)")
     return c
 
 def tours(c):
@@ -67,7 +68,7 @@ class Handler(SimpleHTTPRequestHandler):
             with db() as c:self.out(200,[dict(t,id=i) for i,t in enumerate(tours(c))]);return
         if p=='/api/admin':
             if not self.auth():self.out(401,{'error':'Login required'});return
-            with db() as c:self.out(200,{'tours':tours(c),'bookings':[dict(x) for x in c.execute('SELECT b.*,q.name AS tour_name,q.price AS quoted_price, k.phone,k.wa_opt_in FROM bookings b LEFT JOIN booking_quotes q ON b.id=q.id LEFT JOIN booking_contacts k ON b.id=k.id ORDER BY created DESC')]});return
+            with db() as c:self.out(200,{'tours':tours(c),'bookings':[dict(x) for x in c.execute('SELECT b.*,q.name AS tour_name,q.price AS quoted_price, k.phone,k.wa_opt_in,td.details AS trip_details FROM bookings b LEFT JOIN booking_quotes q ON b.id=q.id LEFT JOIN booking_contacts k ON b.id=k.id LEFT JOIN trip_details td ON td.id=b.id ORDER BY created DESC')]});return
         if re.fullmatch(r'/photo/[a-f0-9]{32}',p):
             with db() as c:r=c.execute('SELECT mime,data FROM photos WHERE id=?',(p[7:],)).fetchone()
             if r:self.out(200,r['data'],r['mime']);return
@@ -129,6 +130,14 @@ class Handler(SimpleHTTPRequestHandler):
                         if action=='delete':c.execute('DELETE FROM reviews WHERE id=?',(d['id'],))
                         else:c.execute('UPDATE reviews SET status=? WHERE id=?',(action,d['id']))
                     self.out(200,{'ok':True});return
+                if p=='/api/admin/trip-details':
+                    ref=str(d['id']); details={k:str(d.get(k,'')).strip() for k in ('hotel','hotel_address','hotel_phone','pickup','pickup_time','driver','driver_phone','vehicle','instructions')}
+                    assert all(len(v)<=500 for v in details.values())
+                    for k in ('hotel_phone','driver_phone'): assert not details[k] or re.fullmatch(r'\+[1-9][0-9]{7,14}',details[k])
+                    with db() as c:
+                        if not c.execute('SELECT 1 FROM bookings WHERE id=?',(ref,)).fetchone():self.out(404,{'error':'Booking not found'});return
+                        c.execute('INSERT OR REPLACE INTO trip_details VALUES (?,?)',(ref,json.dumps(details)))
+                    self.out(200,{'ok':True});return
                 with db() as c:
                     ts=tours(c)
                     if p=='/api/admin/tour':
@@ -168,13 +177,21 @@ class Handler(SimpleHTTPRequestHandler):
                     if count>=30:self.out(429,{'error':'Too many submissions. Try again later.'});return
                     c.execute('INSERT INTO reviews VALUES (?,?,?,?,?,?)',(uuid.uuid4().hex,name,rating,body,now.isoformat(),'pending'))
                 self.out(201,{'ok':True});return
-            if p=='/api/track':
+            if p in ('/api/track','/api/receipt'):
                 ref=str(d.get('id','')).strip().upper();email=str(d.get('email','')).strip().lower()
                 with db() as c:
-                    b=c.execute('SELECT id,status,arrival,people FROM bookings WHERE id=? AND lower(email)=?',(ref,email)).fetchone()
+                    b=c.execute('SELECT b.id,b.status,b.arrival,b.people,b.name,b.tour,q.name AS tour_name FROM bookings b LEFT JOIN booking_quotes q ON b.id=q.id WHERE b.id=? AND lower(b.email)=?',(ref,email)).fetchone()
                     if not b:self.out(404,{'error':'Booking not found'});return
                     r=c.execute('SELECT url,amount,currency,status FROM payments WHERE id=?',(ref,)).fetchone()
-                    self.out(200,dict(dict(b),payment=dict(r) if r and b['status']=='confirmed' else None));return
+                    result=dict(b); result['tour_name']=result['tour_name'] or (tours(c)[b['tour']]['name'] if 0<=b['tour']<len(tours(c)) else 'Tour'); result.pop('tour',None)
+                    td=c.execute('SELECT details FROM trip_details WHERE id=?',(ref,)).fetchone()
+                    result['details']=json.loads(td[0]) if td and b['status'] in ('confirmed','completed') else {}
+                    result['payment']=dict(r) if r and b['status'] in ('confirmed','completed') else None
+                    if p=='/api/receipt':
+                        if b['status'] not in ('confirmed','completed'):self.out(409,{'error':'Receipt available after confirmation'});return
+                        from receipt import create_receipt
+                        self.out(200,create_receipt(result),'application/pdf');return
+                    self.out(200,result);return
             if p!='/api/bookings':self.send_error(404);return
             assert n<=16000
             tour=int(d['tour']);people=int(d['people']);date=datetime.date.fromisoformat(d['date']);name=d['name'].strip();email=d['email'].strip();country=d['country'].strip();notes=d.get('notes','')

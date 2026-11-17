@@ -1,7 +1,7 @@
 # Himachal Travel — combined upgrade
-Same Render service, GitHub folder and existing ADMIN_PASSWORD. Upload the files directly inside himachal-travel-updated, not a nested folder. Start command: python server.py. Build: python -m compileall .
+Same Render service, GitHub folder and existing ADMIN_PASSWORD. Upload the files directly inside himachal-travel-updated, not a nested folder. Start command: python server.py. Build: pip install -r requirements.txt
 
-BEFORE deploying: preserve existing bookings, tour edits, reviews and photos. The old version has no database export; if shell or disk access is available, take a consistent SQLite backup of private_bookings.sqlite3 using Python sqlite3 backup API. Otherwise manually record existing bookings/package details securely and retain original photos; do not deploy if losing records is unacceptable. Never commit databases or credentials to GitHub.
+BEFORE deploying: preserve existing bookings, tour edits, reviews and photos. Use the current Admin Panel backup button before any commit (auto-deploy may begin immediately). If it is unavailable, if shell or disk access is available, take a consistent SQLite backup of private_bookings.sqlite3 using Python sqlite3 backup API. Otherwise manually record existing bookings/package details securely and retain original photos; do not deploy if losing records is unacceptable. Never commit databases or credentials to GitHub.
 
 For durable storage attach a paid Render persistent disk at /var/data and set DATA_DIR=/var/data. Restore the database backup to /var/data/private_bookings.sqlite3 before accepting customers. Free Render storage is temporary. New Admin Panel has a private SQLite backup download. Do not use real payments until durable storage and backups are verified.
 
@@ -11,4 +11,6 @@ Optional email BREVO_API_KEY and EMAIL_FROM (verified sender). WhatsApp WA_ACCES
 
 Admin /admin; booking tracking /#track; reviews /#reviews; sitemap /sitemap.xml. Activity metric counts homepage requests, not unique people. Gallery uses uploaded package photos. Google verification tag retained. Basic SEO only; no ranking guarantee.
 
-Local HTTP tests passed for login, booking, status, reviews, tracking, backup and simulated payment link/status. Live provider calls, browser layout, live deployment and data migration not verified. Customer accounts, translation, coupons, PDF receipts, full analytics and refunds are not implemented.
+Local HTTP tests passed for login, booking, status, reviews, tracking, backup and simulated payment link/status. Live provider calls, browser layout, live deployment and data migration not verified. Customer accounts, translation, coupons, full analytics and refunds are not implemented.
+
+Booking details update: Admin can save hotel, hotel address/contact, pickup date/time and place, driver name/contact, vehicle and guest instructions. Confirmed/completed guests can access details and download a PDF booking confirmation (not a tax invoice or proof of payment) using the booking reference and original email. WhatsApp draft opens for confirmed guests who supplied an international phone number and opted in; press Send manually. Booking success screen provides copyable reference and tracking instructions. Install ReportLab using the build command above. Local HTTP tests verified booking, authentication, saved details, confirmation-gated PDF and incorrect-email rejection. Browser interactions and live deployment were not tested.
