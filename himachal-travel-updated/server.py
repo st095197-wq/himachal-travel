@@ -10,6 +10,15 @@ DATA=Path(os.environ.get('DATA_DIR',str(ROOT))); DATA.mkdir(parents=True,exist_o
 DB=DATA/'private_bookings.sqlite3'
 PASSWORD=os.environ.get('ADMIN_PASSWORD',''); KEY=secrets.token_bytes(32)
 LOGIN_LOCK=threading.Lock(); LOGIN_ATTEMPTS=[]
+RATE_LOCK=threading.Lock(); RATE={}
+def allowed(path):
+    limits={'/api/bookings':40,'/api/track':120,'/api/receipt':40,'/api/reviews':30}
+    if path not in limits:return True
+    with RATE_LOCK:
+        now=time.monotonic(); a=RATE.setdefault(path,[]); a[:]=[x for x in a if now-x<60]
+        if len(a)>=limits[path]:return False
+        a.append(now);return True
+
 
 def db():
     c=sqlite3.connect(DB,timeout=10); c.row_factory=sqlite3.Row
@@ -31,7 +40,7 @@ def tours(c):
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self,*a,**kw): super().__init__(*a,directory=str(ROOT),**kw)
     def end_headers(self):
-        self.send_header('X-Content-Type-Options','nosniff'); self.send_header('Referrer-Policy','same-origin'); self.send_header('X-Frame-Options','DENY'); super().end_headers()
+        self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"); self.send_header('Permissions-Policy','camera=(), microphone=(), geolocation=()'); self.send_header('X-Content-Type-Options','nosniff'); self.send_header('Referrer-Policy','same-origin'); self.send_header('X-Frame-Options','DENY'); super().end_headers()
     def out(self,status,data,mime='application/json',cookie=None):
         body=json.dumps(data).encode() if mime=='application/json' else data
         self.send_response(status); self.send_header('Content-Type',mime); self.send_header('Content-Length',str(len(body))); self.send_header('Cache-Control','no-store')
@@ -58,7 +67,7 @@ class Handler(SimpleHTTPRequestHandler):
                 self.out(200,dest.read_bytes(),'application/octet-stream');return
         if p=='/api/admin/metrics':
             if not self.auth():self.out(401,{'error':'Login required'});return
-            with db() as c:self.out(200,{'views':[dict(r) for r in c.execute('SELECT * FROM daily_views ORDER BY day DESC LIMIT 30')],'payments':[dict(r) for r in c.execute('SELECT * FROM payments')],'payment_configured':payments.configured(),'test_mode':os.getenv('RAZORPAY_KEY_ID','').startswith('rzp_test_')});return
+            with db() as c:self.out(200,{'views':[dict(r) for r in c.execute('SELECT * FROM daily_views ORDER BY day DESC LIMIT 30')],'payments':[dict(r) for r in c.execute('SELECT * FROM payments')],'durable_declared':os.getenv('DURABLE_STORAGE_VERIFIED')=='1','payment_configured':payments.configured(),'test_mode':os.getenv('RAZORPAY_KEY_ID','').startswith('rzp_test_')});return
         if p=='/api/reviews':
             with db() as c:self.out(200,[dict(x) for x in c.execute("SELECT name,rating,body,created FROM reviews WHERE status='approved' ORDER BY created DESC")]);return
         if p=='/api/admin/reviews':
@@ -75,13 +84,14 @@ class Handler(SimpleHTTPRequestHandler):
         if p=='/admin':self.path='/admin.html';super().do_GET();return
         if p in ('/','/index.html'):
             with db() as c:c.execute('INSERT INTO daily_views VALUES (?,1) ON CONFLICT(day) DO UPDATE SET hits=hits+1',(datetime.date.today().isoformat(),))
-        if p in ('/','/index.html','/style.css','/app.js','/extras.js','/mountains.svg','/admin.js','/admin.css'):super().do_GET();return
+        if p in ('/','/index.html','/style.css','/app.js','/extras.js','/pro.js','/mountains.svg','/admin.js','/admin.css'):self.path=p;super().do_GET();return
         self.send_error(404)
     def do_HEAD(self):
-        if urlsplit(self.path).path in ('/','/index.html','/style.css','/app.js','/extras.js','/mountains.svg'):super().do_HEAD()
+        if urlsplit(self.path).path in ('/','/index.html','/style.css','/app.js','/extras.js','/pro.js','/mountains.svg'):super().do_HEAD()
         else:self.send_error(404)
     def do_POST(self):
         p=urlsplit(self.path).path
+        if not allowed(p):self.out(429,{'error':'Too many requests. Try again shortly.'});return
         try:
             n=int(self.headers.get('Content-Length','0')); assert 0<n<=8_000_000
             if self.headers.get_content_type()!='application/json':raise ValueError()
@@ -108,6 +118,7 @@ class Handler(SimpleHTTPRequestHandler):
                         if not b:self.out(404,{'error':'Booking not found'});return
                         try:
                             if p.endswith('/create'):
+                                if not os.getenv('RAZORPAY_KEY_ID','').startswith('rzp_test_') and os.getenv('DURABLE_STORAGE_VERIFIED')!='1':self.out(409,{'error':'Live payments require verified persistent storage'});return
                                 if b['status']!='confirmed' or r:self.out(409,{'error':'Confirm availability first; only one payment link per booking'});return
                                 currency=d['currency']; assert currency in ('INR','USD','EUR')
                                 amount=Decimal(str(d['amount']))*100;assert amount.is_finite() and amount==amount.to_integral_value() and 100<=amount<=100000000
